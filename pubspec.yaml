@@ -1,0 +1,59 @@
+name: ngmusic
+description: Newgrounds Audio Portal client
+publish_to: 'none'
+version: 1.1.0+2
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP + HTML parsing
+  http: ^1.2.2
+  html: ^0.15.4
+
+  # Image
+  cached_network_image: ^3.4.1
+
+  # State management
+  provider: ^6.1.2
+
+  # Local DB
+  sqflite: ^2.3.3+1
+  path: ^1.9.0
+
+  # Utils
+  path_provider: ^2.1.4
+  permission_handler: ^11.3.1
+  url_launcher: ^6.3.1
+  shared_preferences: ^2.3.0
+  webview_flutter: ^4.8.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  fonts:
+    - family: DSEG7
+      fonts:
+        - asset: assets/fonts/DSEG7Classic-Regular.ttf
+    # "headerfont" из ng_publish.css 2015 года
+    - family: Pakenham
+      fonts:
+        - asset: assets/ng2015/fonts/pakenham.ttf
+
+  assets:
+    - assets/fonts/
+    - assets/ng_music_logo.png
+    - assets/ng2015/
+    - assets/ng2015/tex/
+    - assets/ng2015/h2/
+    - assets/ng2015/a15/
+    - assets/ng2015/vp/
+    - assets/ng2024/sprites/

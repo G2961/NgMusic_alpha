@@ -1,0 +1,75 @@
+<ul class="itemlist alternating playlist">
+									<li class="visual-link-container" data-visual-link="[21000,546239]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,544887]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,544857]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,543427]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,542813]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,538861]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,538473]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,530758]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,528034]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,519722]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,519711]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,519373]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,519372]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,516909]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,516350]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,513585]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,512888]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,505922]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,502699]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,499250]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,498592]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,498591]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,498563]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,496056]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,495018]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,495008]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,493940]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,490715]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,490591]"></li>
+									<li class="visual-link-container" data-visual-link="[21000,486107]"></li>
+															<li id="playlist-scroll6a8da195b6aad">
+		<p id="is-loading" style="display:none"><em class="fa fa-spin fa-spinner"></em> Loading More...</p>
+		<p id="not-loading"><a href="https://g2961.newgrounds.com/playlists?page=2">Load More</a></p>
+		<script>
+			/* jshint ignore: start */
+			PHP.set('inf_is_index', false);
+			PHP.set('selector', "#pod_type_14 ul.itemlist");
+			/* jshint ignore: end */
+
+			(($)=>{
+				var $element = $('#playlist-scroll6a8da195b6aad');
+
+				var doLoad = (e)=>{
+					$('#is-loading',$element).show();
+					$('#not-loading',$element).hide();
+
+
+					$.get('https://g2961.newgrounds.com/playlists?page=2', (result)=>{
+						if (!result.data || !result.data.lists) {
+							$element.remove();
+							return;
+						}
+
+						console.log(result.data);
+
+						let $ul = $(result.data.lists);
+
+						let content = $ul.html();
+						$element.replaceWith(content);
+
+						ngutils.visual_links.add_from_dom(document.querySelector(PHP.get('selector')), null, true);
+
+					}, 'json').fail(function() {
+					});
+					return false;
+				};
+
+				$('#not-loading',$element).click(doLoad);
+
+				ngutils.element.whenOnscreen($element, doLoad, 200);
+			})(jQuery);
+		</script>
+	</li>
+							</ul>
