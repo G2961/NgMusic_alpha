@@ -16,7 +16,6 @@ Map<String, String> ajaxHeaders(String cookie) => {
     };
 
 Future<void> main(List<String> args) async {
-  final trackId = args.isNotEmpty ? args.first : '1615369';
   final cookie = File(r'F:\vapecoding\ng2015\server\.ng_cookie')
       .readAsStringSync()
       .replaceAll(RegExp(r'\s+'), ' ')

@@ -26,7 +26,6 @@ Future<void> main(List<String> args) async {
           headers: headers(cookie)))
       .body;
 
-  final revIdx = body.indexOf('data-review-id="19684145"');
   // Заголовок «Reviews» обычно далеко выше карточек (под с plashкой «Read more»).
   for (final pat in ['>Reviews<', 'Reviews</', 'review-head', 'reviews-for',
       'Read More', 'read-more', 'reviews_url', 'review_count']) {
