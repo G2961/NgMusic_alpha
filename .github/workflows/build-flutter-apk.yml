@@ -1,0 +1,45 @@
+name: Build Flutter APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:   # позволяет запускать вручную из вкладки Actions
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Java (нужно для Gradle/Android build)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.5'   # поставь свою версию, см. flutter --version локально
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze (опционально, но полезно — упадёт при ошибках линта)
+        run: flutter analyze
+        continue-on-error: true   # убери эту строку если хочешь чтобы линт-ошибки валили билд
+
+      - name: Build APK (release)
+        run: flutter build apk --release
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ngmusic-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
