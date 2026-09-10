@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -116,6 +118,31 @@ class LibraryViewModel extends ChangeNotifier {
       ..addAll(favorites.map((f) => f.trackId));
     isLoading = false;
     notifyListeners();
+  }
+
+  /// Refresh с кнопки «Your Favorites»: локальная база + сверка
+  /// избранного/плейлистов с NG (если вошли). Даёт видимый отклик:
+  /// во время работы isSyncingNg = true, кнопка показывает «Refreshing…».
+  Future<void> refreshFavorites() async {
+    isLoading = true;
+    isSyncingNg = true;
+    notifyListeners();
+    try {
+      await refresh();
+      final username = await NgAuth.getUsername();
+      final logged = username != null &&
+          username.isNotEmpty &&
+          username != 'unknown' &&
+          await NgAuth.isLoggedIn();
+      if (logged) {
+        isLoggedIn = true;
+        await syncNgPlaylists(username);
+        await _reconcileNgFavorites();
+      }
+    } finally {
+      isSyncingNg = false;
+      notifyListeners();
+    }
   }
 
   // ─── Избранное ────────────────────────────────────────────────────────────────
@@ -305,9 +332,13 @@ class LibraryViewModel extends ChangeNotifier {
   }
 
   /// Убирает трек из плейлиста. Для зеркала NG — и с сайта тоже.
+  /// Возвращает (ok, updatedPlaylist-треки уже убраны из базы).
   Future<bool> removeTrackFromPlaylist(int playlistId, String trackId) async {
     final pl = playlists.firstWhere((p) => p.id == playlistId,
         orElse: () => const Playlist(name: '', createdAt: 0));
+    // Из локального кэша убираем СРАЗУ (экран мгновенно перерисуется),
+    // удаление на NG — следом; при неудаче вернём ошибку.
+    await _db.removeTrackFromPlaylist(playlistId, trackId);
     if (pl.ngId != null) {
       isSyncingNg = true;
       lastError = null;
@@ -320,27 +351,52 @@ class LibraryViewModel extends ChangeNotifier {
         return false;
       }
     }
-    await _db.removeTrackFromPlaylist(playlistId, trackId);
     await refresh();
     return true;
   }
 
-  /// Треки плейлиста: локальные — из базы, зеркало NG — с сайта, с записью
-  /// в базу, чтобы дальше открывались мгновенно и работали офлайн.
-  Future<List<PlaylistTrack>> loadPlaylistTracks(Playlist playlist) async {
+  /// Треки плейлиста — cache-first: локальный кэш отдаётся сразу (мгновенный
+  /// рендер), затем для зеркала NG тихо сверяемся с сайтом: добавляем новые
+  /// треки, убираем удалённые. Свежий список возвращается в колбеке, когда
+  /// сверка дошла (или не дошла — тогда кэш так и остаётся на экране).
+  Future<List<PlaylistTrack>> loadPlaylistTracks(
+    Playlist playlist, {
+    ValueChanged<List<PlaylistTrack>>? onSynced,
+  }) async {
     final local = await _db.getPlaylistTracks(playlist.id!);
     if (playlist.ngId == null) return local;
 
-    final remote = await _repo.getNgPlaylistTracks(playlist.ngId!);
-    if (remote.isEmpty) return local;
-
-    final localIds = local.map((t) => t.trackId).toSet();
-    for (final t in remote) {
-      if (!localIds.contains(t.id)) {
-        await _db.addTrackToPlaylist(playlist.id!, t);
+    // Тихая сверка с NG в фоне: результаты сольются в базу и вернутся
+    // через [onSynced]; экран всё это время показывает кэш.
+    unawaited(() async {
+      List<PlaylistTrack> fresh = local;
+      var changed = false;
+      try {
+        final remote = await _repo.getNgPlaylistTracks(playlist.ngId!);
+        final localIds = local.map((t) => t.trackId).toSet();
+        final remoteIds = remote.map((t) => t.id).toSet();
+        // Новые на сайте — добавляем.
+        for (final t in remote) {
+          if (!localIds.contains(t.id)) {
+            await _db.addTrackToPlaylist(playlist.id!, t);
+            changed = true;
+          }
+        }
+        // Удалённые с сайта — убираем из кэша.
+        for (final t in local) {
+          if (!remoteIds.contains(t.trackId)) {
+            await _db.removeTrackFromPlaylist(playlist.id!, t.trackId);
+            changed = true;
+          }
+        }
+        if (changed) fresh = await _db.getPlaylistTracks(playlist.id!);
+      } catch (_) {
+        return; // сеть упала — кэш остаётся на экране как есть
       }
-    }
-    return _db.getPlaylistTracks(playlist.id!);
+      if (changed) onSynced?.call(fresh);
+    }());
+
+    return local;
   }
 
   // ─── Синхронизация плейлистов NG ──────────────────────────────────────────────

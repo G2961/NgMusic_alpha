@@ -26,6 +26,10 @@ class PlaylistScreen extends StatefulWidget {
 class _PlaylistScreenState extends State<PlaylistScreen> {
   List<PlaylistTrack> _tracks = [];
   bool _loading = true;
+
+  /// Для зеркала NG: кэш пуст, но сверка с сайтом ещё идёт — показываем
+  /// загрузку, а не «No tracks»: честный ответ «пусто» только после сверки.
+  bool _checking = false;
   late Playlist _playlist = widget.playlist;
 
   @override
@@ -35,15 +39,24 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   }
 
   Future<void> _load() async {
-    // Для зеркала NG треки подтягиваются с сайта, для локального — из базы.
-    final tracks =
-        await context.read<LibraryViewModel>().loadPlaylistTracks(_playlist);
-    if (mounted) {
+    // Кэш отдаётся сразу, для зеркала NG тихо сверяется с сайтом в фоне —
+    // свежий список приедет в onSynced (новые добавятся, удалённые уйдут).
+    final lvm = context.read<LibraryViewModel>();
+    final isNg = _playlist.ngId != null;
+    final cached = await lvm.loadPlaylistTracks(_playlist, onSynced: (fresh) {
+      if (!mounted) return;
       setState(() {
-        _tracks = tracks;
-        _loading = false;
+        _tracks = fresh;
+        _checking = false;
       });
-    }
+    });
+    if (!mounted) return;
+    setState(() {
+      _tracks = cached;
+      _loading = false;
+      // Кэш пуст, а сверка с NG в полёте — крутим загрузку до её ответа.
+      _checking = isNg && cached.isEmpty;
+    });
   }
 
   @override
@@ -53,7 +66,9 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     final isNg = _playlist.ngId != null;
 
     final Widget body;
-    if (_loading) {
+    if (_loading || (_checking && _tracks.isEmpty)) {
+      // Первое открытие: кэш пуст и/или идёт сверка с NG — честно показываем
+      // загрузку. «No tracks» — только после ответа сайта, если и там пусто.
       body = const SingleChildScrollView(child: NgLoading());
     } else if (_tracks.isEmpty) {
       body = const SingleChildScrollView(
@@ -121,14 +136,15 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
 
   Future<void> _removeTrack(PlaylistTrack pt) async {
     final lvm = context.read<LibraryViewModel>();
+    // Оптимистично убираем из списка сразу — не ждём сеть.
+    setState(() => _tracks.removeWhere((t) => t.trackId == pt.trackId));
     final ok = await lvm.removeTrackFromPlaylist(_playlist.id!, pt.trackId);
     if (!mounted) return;
     if (!ok) {
       _snack(lvm.lastError ?? 'Failed to remove track', ok: false);
       lvm.clearError();
-      return;
+      await _load(); // вернуть как было
     }
-    await _load();
   }
 
   Future<void> _showRename() async {
@@ -233,10 +249,7 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           if (busy)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: SizedBox(width: 60, child: NgStripedBar(value: 1, height: 8)),
-            ),
+            const NgLoading(compact: true, size: 22),
           NgIconButton(
             icon: 'pencil',
             padding: 10,

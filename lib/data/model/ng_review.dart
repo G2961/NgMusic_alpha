@@ -14,8 +14,8 @@ class NgReview {
   /// Ссылка «Report Abuse» (жёлтый флажок) из карточки.
   final String flagUrl;
 
-  /// Сколько реакций у отзыва (null — счётчик пустой на NG).
-  final int? reactions;
+  /// Ответ автора трека, если есть (`div.authresponse`).
+  final NgReviewResponse? response;
 
   const NgReview({
     required this.id,
@@ -26,10 +26,25 @@ class NgReview {
     this.score = 0,
     required this.body,
     this.flagUrl = '',
-    this.reactions,
+    this.response,
   });
 
   bool get hasScore => score > 0;
+}
+
+/// Ответ автора трека на отзыв (`div.authresponse` в карточке).
+class NgReviewResponse {
+  final String author; // ник автора трека
+  final String authorSlug; // `{slug}.newgrounds.com`
+  final String avatarUrl;
+  final String body;
+
+  const NgReviewResponse({
+    required this.author,
+    this.authorSlug = '',
+    this.avatarUrl = '',
+    required this.body,
+  });
 }
 
 /// Страница отзывов: список + пагинация («Page 1 of 56»).

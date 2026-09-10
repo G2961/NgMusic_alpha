@@ -34,7 +34,7 @@ const ngRowAltGreen = Color(0xFF16181A);
 
 // ── Плеер (страница трека 2024: waveform + кнопки) ───────────────────────────
 
-const ngPlayerYellow = Color(0xFF67D539); // прогресс-акцент аудио 2024
+const ngPlayerYellow = Color(0xFFFDA238); // акцент плеера — золотой NG 2024 (был зелёный #67D539)
 const ngPlayerStripe = Color(0xFF1E2422);
 const ngPlayerBarTop = Color(0xFF1A1618);
 const ngPlayerBarBot = Color(0xFF0F0B0C);
@@ -69,6 +69,9 @@ class NgTex {
 
   static const logo = 'assets/ng2015/logo-ngmusic.png';
   static const logoNg2015 = 'assets/ng2015/logo.png';
+
+  /// Лого шапки 2024: танк + «NEWGROUNDS AUDIO PORTAL» (assets/header_logo.png).
+  static const logoHeader2024 = 'assets/header_logo.png';
   static const logoTiny = 'assets/ng2015/logo-tiny.png';
   static const defaultAudioIcon = 'assets/ng2015/icon-audio-default.png';
   static const starsEmpty = 'assets/ng2015/stars-empty.png';
@@ -78,6 +81,14 @@ class NgTex {
 
   /// Звёзды рейтинга 2024 — спрайт 36×72 (пустые сверху, залитые снизу).
   static const starScore2024 = 'assets/ng2024/sprites/star-score.webp';
+
+  /// Звёзды-кнопки голосования 2024 — спрайт 150×666 (одна звезда 150×134,
+  /// 5 состояний: hover/idle/checked/blam, @2x).
+  static const starSelect2024 = 'assets/ng2024/sprites/star-select-2.webp';
+
+  /// Иконки настроения votebar 2024 («Steve reacts») — 210×2035, 11 кадров
+  /// по 185px (@2x), кадр N = голос N (0..10).
+  static const steveReact2024 = 'assets/ng2024/sprites/SteveReact4.webp';
 
   /// Кнопки плеера 2024 — спрайт 200×100: play слева (64×64), pause справа.
   static const playbackButtons2024 =

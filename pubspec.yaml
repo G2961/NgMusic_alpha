@@ -51,6 +51,7 @@ flutter:
   assets:
     - assets/fonts/
     - assets/ng_music_logo.png
+    - assets/header_logo.png
     - assets/ng2015/
     - assets/ng2015/tex/
     - assets/ng2015/h2/

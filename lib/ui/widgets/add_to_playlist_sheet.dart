@@ -267,10 +267,7 @@ class _PlaylistPickRow extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               if (busy)
-                const SizedBox(
-                  width: 40,
-                  child: NgStripedBar(value: 1, height: 8),
-                )
+                const NgLoading(compact: true, size: 20)
               else
                 Image.asset(NgTex.a15('add'), width: 15, height: 15),
             ],

@@ -93,6 +93,43 @@ void main() {
     expect(stage.height, lessThan(120));
   });
 
+  testWidgets('ландшафт: сцена с фиксированной обложкой не режет бары', (tester) async {
+    final view = TestWidgetsFlutterBinding.instance.platformDispatcher.views.first;
+    view.physicalSize = const Size(2400, 1080); // тот же телефон, но ландшафт
+    view.devicePixelRatio = 2.625;
+    addTearDown(() {
+      view.resetPhysicalSize();
+      view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ngTheme,
+      home: Scaffold(
+        body: SafeArea(
+          child: SingleChildScrollView(
+            child: NgPlayerStage(
+              artUrls: const ['https://example.com/art.png'],
+              artHeight: 203,
+              position: const Duration(seconds: 42),
+              duration: const Duration(minutes: 3, seconds: 20),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(tester.takeException(), isNull);
+    // Сцена ровно: обложка 203 + два бара 92 + рамки фрейма 2. Если больше —
+    // низ (транспорт) уезжает под обрез пода, как это было в релизе.
+    final stageRect = tester.getRect(find.byType(NgPlayerStage));
+    expect(stageRect.height, 203 + 92 + 2);
+
+    // Время и транспорт физически внутри сцены, а не под её нижним краем.
+    final timeRect = tester.getRect(find.byType(NgTimeLabel));
+    expect(timeRect.bottom, lessThanOrEqualTo(stageRect.bottom));
+  });
+
   testWidgets('иконки трофеев режутся из спрайта', (tester) async {
     await tester.pumpWidget(const MaterialApp(
       home: Scaffold(

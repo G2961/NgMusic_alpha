@@ -16,7 +16,7 @@ void main() {
   <a href="https://exlord.newgrounds.com" title="Exlord">Exlord</a>
   <image href="https://uimg.ngfiles.com/a/1.jpg" alt="avatar"/>
   <span class="star-score" title="Score: 4.50"><span style="width:90%"></span></span>
-  <time datetime="2026-05-02">May 2, 2026</time>
+  <time datetime="2026-05-02">2026-05-02 14:03:11</time>
   <div class="review-body ">Great &amp; &#039;dark&#039; track, love &lt;it&gt;</div>
 </div>
 <div class="pod-body review" id="review_52416576a8f1ad3ba0af" data-review-id="5241657">
@@ -34,6 +34,7 @@ void main() {
     expect(items[0].author, 'Exlord');
     expect(items[0].avatarUrl, isNotEmpty);
     expect(items[0].score, 4.5);
+    // Дата сокращается до «месяц число, год».
     expect(items[0].date, 'May 2, 2026');
     // Сущности и теги вычищены.
     expect(items[0].body, "Great & 'dark' track, love <it>");
@@ -42,6 +43,17 @@ void main() {
     expect(items[1].score, 0);
     expect(items[1].hasScore, isFalse);
     expect(items[1].body, 'Not bad');
+  });
+
+  test('parseReviews: NG-дата с временем сокращается до «May 2, 2026»', () {
+    const html = '''
+<div class="pod-body review" id="review_1" data-review-id="1">
+  <a href="https://u.newgrounds.com" title="U">U</a>
+  <time>2026-05-02 14:03:11</time>
+</div>
+''';
+    final items = repo.parseReviews(html);
+    expect(items.single.date, 'May 2, 2026');
   });
 
   test('parseReviews: пустая страница отдаёт пустой список', () {

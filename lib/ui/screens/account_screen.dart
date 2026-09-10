@@ -7,6 +7,7 @@ import '../../viewmodel/ng_viewmodel.dart';
 import '../theme/ng_theme.dart';
 import '../widgets/ng_chrome.dart';
 import '../widgets/ng_retro.dart';
+import '../../main.dart' show NgMiniPlayer;
 import 'artist_screen.dart';
 import 'login_screen.dart';
 
@@ -25,14 +26,38 @@ class AccountScreen extends StatefulWidget {
   State<AccountScreen> createState() => _AccountScreenState();
 }
 
-class _AccountScreenState extends State<AccountScreen> {
-  /// Под настроек — кнопка `Settings` в поде профиля доскроллит до него.
-  final _settingsKey = GlobalKey();
+class _AccountScreenState extends State<AccountScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tab;
+  int _idx = 0;
+
+  static const _tabLabels = ['Account', 'Settings'];
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: _tabLabels.length, vsync: this);
+    _tab.animation!.addListener(_onTabAnim);
+  }
+
+  void _onTabAnim() {
+    final i = _tab.animation!.value.round().clamp(0, _tabLabels.length - 1);
+    if (i != _idx && mounted) setState(() => _idx = i);
+  }
+
+  @override
+  void dispose() {
+    _tab.animation?.removeListener(_onTabAnim);
+    _tab.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<NgViewModel>();
     final user = vm.currentUser;
+    final landscape = MediaQuery.of(context).size.width >
+        MediaQuery.of(context).size.height;
 
     final Widget content;
     if (vm.isLoadingUser && user == null) {
@@ -53,10 +78,9 @@ class _AccountScreenState extends State<AccountScreen> {
             refreshing: vm.isLoadingUser,
             onRefresh: vm.fetchUser,
             onLogout: _logout,
-            onSettings: _scrollToSettings,
             onOpenProfile: () => _openProfile(user.username),
           ),
-          _SettingsPod(key: _settingsKey),
+          if (!landscape) _SettingsPod(),
         ],
       );
     }
@@ -74,18 +98,53 @@ class _AccountScreenState extends State<AccountScreen> {
                   user == null ? _login : () => _openProfile(user.username),
             ),
             Expanded(
-              // Поды стоят на серой колонке `#main`, иначе их чёрные рамки
-              // сливаются с фоном страницы.
-              child: NgPageColumn(
-                padding: EdgeInsets.zero,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(6, 8, 6, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [content],
-                  ),
-                ),
-              ),
+              // Ландшафт: слева стопка вкладок Account/Settings + мини-плеер,
+              // справа контент выбранной вкладки (свайпов нет). Портрет:
+              // обычная колонка подов, настройки — под профилем.
+              child: landscape
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AnimatedBuilder(
+                          animation: _tab.animation!,
+                          builder: (_, __) => Column(
+                            children: [
+                              NgNavPlatesSide(
+                                labels: _tabLabels,
+                                index: _idx,
+                                onSelect: (i) => _tab.animateTo(i),
+                                accents: const [NgAccent.orange, NgAccent.purple],
+                                progress:
+                                    _tab.animation?.value ?? _idx.toDouble(),
+                              ),
+                              const Spacer(),
+                              if (vm.currentTrack != null)
+                                const SizedBox(
+                                  width: 170,
+                                  child: NgMiniPlayer(compact: true),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: Padding(
+                            padding:
+                                const EdgeInsets.only(left: 8, right: 6, top: 8),
+                            child: _pane(landscape, content),
+                          ),
+                        ),
+                      ],
+                    )
+                  : NgPageColumn(
+                      padding: EdgeInsets.zero,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(6, 8, 6, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [content],
+                        ),
+                      ),
+                    ),
             ),
           ],
         ),
@@ -94,6 +153,29 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   // ── Действия ───────────────────────────────────────────────────────────────
+
+  /// Контент правой панели в ландшафте: вкладка [i] — отдельный «экран».
+  /// Когда пользователь не вошёл, обе вкладки показывают под логина.
+  Widget _pane(bool landscape, Widget loggedOutOrLoading) {
+    final vm = context.read<NgViewModel>();
+    final user = vm.currentUser;
+    if (_idx == 0 || user == null) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(6, 8, 6, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [loggedOutOrLoading],
+        ),
+      );
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(6, 8, 6, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [const _SettingsPod()],
+      ),
+    );
+  }
 
   Future<void> _login() async {
     final vm = context.read<NgViewModel>();
@@ -168,17 +250,6 @@ class _AccountScreenState extends State<AccountScreen> {
       MaterialPageRoute(builder: (_) => ArtistScreen(artist: username)),
     );
   }
-
-  void _scrollToSettings() {
-    final ctx = _settingsKey.currentContext;
-    if (ctx == null) return;
-    Scrollable.ensureVisible(
-      ctx,
-      alignment: 0.05,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOut,
-    );
-  }
 }
 
 // ── Не вошёл ─────────────────────────────────────────────────────────────────
@@ -215,7 +286,6 @@ class _ProfilePod extends StatelessWidget {
   final bool refreshing;
   final VoidCallback onRefresh;
   final VoidCallback onLogout;
-  final VoidCallback onSettings;
   final VoidCallback onOpenProfile;
 
   const _ProfilePod({
@@ -223,7 +293,6 @@ class _ProfilePod extends StatelessWidget {
     required this.refreshing,
     required this.onRefresh,
     required this.onLogout,
-    required this.onSettings,
     required this.onOpenProfile,
   });
 
@@ -284,11 +353,6 @@ class _ProfilePod extends StatelessWidget {
                       label: refreshing ? 'Refreshing…' : 'Refresh',
                       icon: 'refresh',
                       onPressed: refreshing ? null : onRefresh,
-                    ),
-                    NgButton(
-                      label: 'Settings',
-                      icon: 'gear',
-                      onPressed: onSettings,
                     ),
                     NgButton(
                       label: 'Log Out',
@@ -371,7 +435,7 @@ class _SquareAvatar extends StatelessWidget {
 // ── Настройки ────────────────────────────────────────────────────────────────
 
 class _SettingsPod extends StatelessWidget {
-  const _SettingsPod({super.key});
+  const _SettingsPod();
 
   @override
   Widget build(BuildContext context) {
@@ -470,7 +534,6 @@ class _OptionRow extends StatelessWidget {
             else
               NgButton(
                 label: 'Use This',
-                icon: 'save',
                 width: 92,
                 onPressed: onSelect,
               ),

@@ -456,6 +456,21 @@ class NgRepository {
       .replaceAll('&gt;', '>')
       .replaceAll('&nbsp;', ' ');
 
+  /// Дата отзыва NG: `2026-05-29 09:50:01` → `May 29, 2026` (без времени).
+  /// Уже сокращённые и относительные даты («about 8 hours ago», «May 29, 2026»)
+  /// проходят без изменений.
+  String _fmtReviewDate(String s) {
+    final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(s);
+    if (m == null) return s;
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    final mi = int.tryParse(m.group(2)!) ?? 0;
+    if (mi < 1 || mi > 12) return s;
+    return '${months[mi - 1]} ${int.tryParse(m.group(3)!) ?? 0}, ${m.group(1)}';
+  }
+
   /// Разбирает страницу отзывов `/reviews/portal/{id}/3/{sort}/{page}`.
   /// Карточка (разметка проверена живьём):
   /// ```html
@@ -493,15 +508,27 @@ class NgRepository {
       final body = RegExp(r'<div class="review-body[^"]*"[^>]*>([\s\S]*?)</div>')
           .firstMatch(block);
 
-      // Число реакций: initTotals("#…", 2003, N, N, null); сам счётчик NG
-      // подтягивает отдельным запросом и почти всегда держит пустым —
-      // считаем «есть реакции», если в пустом <a> что-то вписано.
-      int? reactions;
-      final totals = RegExp(
-              r'class="reaction-totals"[^>]*>\s*([\d,]+)\s*<')
+      // Ответ автора: div.authresponse с аватаром, ником и «responds:».
+      NgReviewResponse? response;
+      final respBlock = RegExp(
+              r'<div class="authresponse"[^>]*>([\s\S]*?)</div>\s*</div>')
           .firstMatch(block);
-      if (totals != null) {
-        reactions = int.tryParse(totals.group(1)!.replaceAll(',', ''));
+      if (respBlock != null) {
+        final seg = respBlock.group(1)!;
+        final rAuthor = RegExp(r'<a href="https://([a-z0-9-]+)\.newgrounds\.com">([^<]+)</a>')
+            .firstMatch(seg);
+        final rIcon = RegExp(r'<image href="([^"]+)"').firstMatch(seg);
+        final rBody = RegExp(r'<p>([\s\S]*?)</p>\s*</div>\s*$')
+                .firstMatch(seg) ??
+            RegExp(r'responds:\s*</span>[\s\S]*?<p>([\s\S]*?)</p>')
+                .firstMatch(seg);
+        response = NgReviewResponse(
+          authorSlug: rAuthor?.group(1) ?? '',
+          author: _decodeEntities(rAuthor?.group(2) ?? ''),
+          avatarUrl: rIcon?.group(1) ?? '',
+          body: _decodeEntities(
+              rBody?.group(1)?.replaceAll(RegExp(r'<[^>]+>'), ' ').trim() ?? ''),
+        );
       }
 
       out.add(NgReview(
@@ -509,10 +536,10 @@ class NgRepository {
         authorSlug: user?.group(1) ?? '',
         author: _decodeEntities(user?.group(2) ?? 'Anonymous'),
         avatarUrl: icon?.group(1) ?? '',
-        date: _decodeEntities(time?.group(1)?.trim() ?? ''),
+        date: _fmtReviewDate(_decodeEntities(time?.group(1)?.trim() ?? '')),
         score: double.tryParse(score?.group(1) ?? '') ?? 0,
         flagUrl: flag?.group(1) ?? '',
-        reactions: reactions,
+        response: response,
         body: _decodeEntities(
             body?.group(1)?.replaceAll(RegExp(r'<[^>]+>'), ' ').trim() ?? ''),
       ));
@@ -542,12 +569,13 @@ class NgRepository {
   }
 
   /// Ставит оценку треку: `POST /content/vote/{id}/3`,
-  /// тело `show_fields=1&userkey=…&vote=0..10` (звёзды×2).
+  /// тело `show_fields=1&userkey=…&vote=0..10`.
+  /// [vote] — голос в шкале NG 0..10 (полузвёзды; 1 = ползвезды).
   /// Возвращает новый score/votes NG, либо null при отказе.
-  Future<VoteResult?> voteTrack(String trackId, int stars) async {
+  Future<VoteResult?> voteTrack(String trackId, int vote) async {
     final cookie = await NgAuth.getCookie();
     if (cookie == null || cookie.isEmpty) return null;
-    final v = (stars * 2).clamp(0, 10);
+    final v = vote.clamp(0, 10);
 
     final pageUrl = '$_baseUrl/audio/listen/$trackId';
     try {
@@ -579,12 +607,12 @@ class NgRepository {
         return null;
       }
       final parsed = _parseVoteResponse(res.body);
-      // NG после голоса убирает votebar со страницы — храним выбор локально,
-      // чтобы подсвечивать его при следующих визитах.
-      await NgAuth.saveMyVote(trackId, stars);
+      // NG после голоса убирает votebar со страницы — храним выбор локально
+      // (в шкале NG 0..10, чтобы полузвёзды не терялись).
+      await NgAuth.saveMyVote(trackId, v);
       return parsed;
     } catch (e) {
-      debugPrint('[ng] voteTrack($trackId, $stars) failed: $e');
+      debugPrint('[ng] voteTrack($trackId, $vote) failed: $e');
       return null;
     }
   }
@@ -620,7 +648,7 @@ class NgRepository {
 
   /// Пишет отзыв: `POST /reviews/create/{id}/3` с полями формы
   /// `userkey`, `generic_id`, `type_id=3`, `vote` (0..10), `body`.
-  /// [stars] 0 — без оценки, иначе звёзды×2.
+  /// [stars] — оценка в шкале NG 0..10 (полузвёзды; 0 — без оценки).
   /// Возвращает текст ошибки NG или null при успехе.
   Future<String?> postReview(
       String trackId, String text, int stars) async {
@@ -650,7 +678,7 @@ class NgRepository {
             body: 'userkey=${Uri.encodeQueryComponent(key)}'
                 '&generic_id=$trackId'
                 '&type_id=3'
-                '&vote=${(stars * 2).clamp(0, 10)}'
+                '&vote=${stars.clamp(0, 10)}'
                 '&body=${Uri.encodeQueryComponent(text)}',
           )
           .timeout(const Duration(seconds: 15));
@@ -664,7 +692,7 @@ class NgRepository {
         if (err == null) {
           // Отзыв принят. ID NG выдаёт на следующей странице трека — получим
           // при первом getMyReview; пока кладём в кэш с пустым id.
-          await NgAuth.saveMyReview(trackId, '', text, stars * 2);
+          await NgAuth.saveMyReview(trackId, '', text, stars);
           await NgAuth.saveMyVote(trackId, stars);
           return null;
         }
@@ -688,7 +716,7 @@ class NgRepository {
     try {
       final html = await _connectRawAuth('$_baseUrl/audio/listen/$trackId', cookie);
       final review = parseMyReview(html);
-      // Синхронизируем локальный кэш (используется для быстрой отрисовки).
+      // Синхронизируем локальный кэш (vote — шкала NG 0..10).
       if (review != null) {
         await NgAuth.saveMyReview(trackId, review.id, review.body,
             review.hasScore ? (review.score * 2).round() : null);
@@ -767,7 +795,7 @@ class NgRepository {
             body: 'userkey=${Uri.encodeQueryComponent(key)}'
                 '&generic_id=$trackId'
                 '&type_id=3'
-                '&vote=${(stars * 2).clamp(0, 10)}'
+                '&vote=${stars.clamp(0, 10)}'
                 '&body=${Uri.encodeQueryComponent(text)}',
           )
           .timeout(const Duration(seconds: 15));
@@ -783,6 +811,57 @@ class NgRepository {
       return 'NG ${res.statusCode}';
     } catch (e) {
       debugPrint('[ng] editReview($reviewId) failed: $e');
+      return 'network error';
+    }
+  }
+
+  /// Ответ автора трека на чужой отзыв: `POST /reviews/responses/create/{reviewId}`
+  /// с полями `userkey` + `body` (разметка формы — probe живьём, сессия сентября).
+  /// Разметка формы отдаётся ТОЛЬКО автору трека — это же и проверка владения:
+  /// если формы/userkey нет, отвечаем 'not your track'.
+  Future<String?> postResponse(String reviewId, String text) async {
+    final cookie = await NgAuth.getCookie();
+    if (cookie == null || cookie.isEmpty) return 'not logged in';
+
+    final pageUrl = '$_baseUrl/reviews/responses/create/$reviewId';
+    try {
+      final formHtml = await _connectRawAuth(pageUrl, cookie);
+      // Нет формы «Your Response» — трек не наш (или отзыв исчез).
+      if (!formHtml.contains('response_form_$reviewId')) {
+        return 'not your track';
+      }
+      final key = _userkeyFrom(formHtml);
+      if (key == null) {
+        debugPrint('[ng] postResponse: нет userkey — сессия не авторизована');
+        return 'not logged in';
+      }
+
+      final res = await http
+          .post(
+            Uri.parse(pageUrl),
+            headers: {
+              'User-Agent': _userAgent,
+              'Cookie': cookie,
+              'Content-Type':
+                  'application/x-www-form-urlencoded; charset=UTF-8',
+              'Referer': pageUrl,
+            },
+            body: 'userkey=${Uri.encodeQueryComponent(key)}'
+                '&body=${Uri.encodeQueryComponent(text)}',
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (res.statusCode == 200 ||
+          (res.statusCode >= 300 && res.statusCode < 400)) {
+        final err = RegExp(r'class="[^"]*(error|alert)[^"]*"[^>]*>([^<]+)')
+            .firstMatch(res.body)?.group(2);
+        if (err == null) return null;
+        return _decodeEntities(err.trim());
+      }
+      debugPrint('[ng] postResponse -> ${res.statusCode} ${res.body}');
+      return 'NG ${res.statusCode}';
+    } catch (e) {
+      debugPrint('[ng] postResponse($reviewId) failed: $e');
       return 'network error';
     }
   }

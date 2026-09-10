@@ -9,6 +9,7 @@ import '../theme/ng_theme.dart';
 import '../widgets/ng_chrome.dart';
 import '../widgets/ng_playlist_dialogs.dart';
 import '../widgets/ng_retro.dart';
+import '../../main.dart' show NgMiniPlayer;
 import 'artist_screen.dart';
 import 'login_screen.dart';
 import 'player_screen.dart';
@@ -29,7 +30,7 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late TabController _tab;
   int _idx = 0;
 
@@ -60,6 +61,8 @@ class _LibraryScreenState extends State<LibraryScreen>
   Widget build(BuildContext context) {
     final lvm = context.watch<LibraryViewModel>();
     final vm = context.watch<NgViewModel>();
+    final landscape = MediaQuery.of(context).size.width >
+        MediaQuery.of(context).size.height;
 
     // Ошибки операций с NG показываем снеком: тихо проглатывать их было
     // главной причиной «ничего не работает, но и не ругается».
@@ -82,29 +85,109 @@ class _LibraryScreenState extends State<LibraryScreen>
       backgroundColor: ngBlack,
       body: SafeArea(
         bottom: false,
-        child: Column(
-          children: [
-            NgNavPlates(
-              labels: _tabLabels,
-              index: _idx,
-              onSelect: (i) => _tab.animateTo(i),
-              accents: const [NgAccent.blue, NgAccent.red],
-            ),
-            Expanded(
-              child: NgPageColumn(
-                child: TabBarView(
-                  controller: _tab,
-                  children: [
-                    _PlaylistsTab(lvm: lvm, onCreate: _showCreatePlaylist),
-                    _FavoritesTab(lvm: lvm, vm: vm),
-                  ],
-                ),
+        child: landscape
+            // Ландшафт — как хаб: слева стопка вкладок + мини-плеер внизу,
+            // справа контент вкладки. Горизонтальной полосы и свайпов нет.
+            ? Column(
+                children: [
+                  NgLogoBar(
+                    username: vm.currentUser?.username,
+                    avatarUrl: vm.currentUser?.avatarUrl,
+                    onUserTap: () => _onUserTap(context, vm),
+                  ),
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AnimatedBuilder(
+                          animation: _tab.animation!,
+                          builder: (_, __) => Column(
+                            children: [
+                              NgNavPlatesSide(
+                                labels: _tabLabels,
+                                index: _idx,
+                                onSelect: _goTo,
+                                accents: const [NgAccent.blue, NgAccent.red],
+                                progress:
+                                    _tab.animation?.value ?? _idx.toDouble(),
+                              ),
+                              const Spacer(),
+                              if (vm.currentTrack != null)
+                                const SizedBox(
+                                  width: 170,
+                                  child: NgMiniPlayer(compact: true),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: Padding(
+                            padding:
+                                const EdgeInsets.only(left: 8, right: 6, top: 8),
+                            child: tabContent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            // Портрет: полоса плашек сверху, свайпы между вкладками.
+            : Column(
+                children: [
+                  NgLogoBar(
+                    username: vm.currentUser?.username,
+                    avatarUrl: vm.currentUser?.avatarUrl,
+                    onUserTap: () => _onUserTap(context, vm),
+                  ),
+                  AnimatedBuilder(
+                    animation: _tab.animation!,
+                    builder: (_, __) => NgNavPlates(
+                      labels: _tabLabels,
+                      index: _idx,
+                      onSelect: _goTo,
+                      accents: const [NgAccent.blue, NgAccent.red],
+                      progress: _tab.animation?.value ?? _idx.toDouble(),
+                    ),
+                  ),
+                  Expanded(
+                    child: NgPageColumn(
+                      child: TabBarView(
+                        controller: _tab,
+                        children: [
+                          _PlaylistsTab(lvm: lvm, onCreate: _showCreatePlaylist),
+                          _FavoritesTab(lvm: lvm, vm: vm),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
+  }
+
+  /// Контент текущей вкладки для ландшафта — без TabBarView.
+  Widget get tabContent => _idx == 0
+      ? _PlaylistsTab(lvm: context.read<LibraryViewModel>(),
+          onCreate: _showCreatePlaylist)
+      : _FavoritesTab(
+          lvm: context.read<LibraryViewModel>(),
+          vm: context.read<NgViewModel>());
+
+  /// Переключение вкладки кликом по плашке (в ландшафте свайпов нет).
+  void _goTo(int i) => _tab.animateTo(i);
+
+  /// Тап по профилю в шапке — на экран аккаунта (как в хабе).
+  void _onUserTap(BuildContext context, NgViewModel vm) {
+    final user = vm.currentUser;
+    if (user != null) {
+      Navigator.push(context,
+          MaterialPageRoute(builder: (_) => ArtistScreen(artist: user.username)));
+    } else {
+      Navigator.push(
+          context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+    }
   }
 
   /// Новый плейлист: имя + выбор, где его создать. Вариант Newgrounds
@@ -345,7 +428,10 @@ class _FavoritesTab extends StatelessWidget {
       icon: 'heart',
       title: 'Your Favorites',
       skin: _skin,
-      action: NgPlateLink(label: 'Refresh »', onTap: lvm.refresh),
+      action: NgPlateLink(
+        label: lvm.isSyncingNg ? 'Refreshing…' : 'Refresh »',
+        onTap: lvm.isSyncingNg ? null : lvm.refreshFavorites,
+      ),
       child: body,
     );
   }

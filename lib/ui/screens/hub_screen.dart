@@ -9,6 +9,7 @@ import '../theme/ng_theme.dart';
 import '../widgets/add_to_playlist_sheet.dart';
 import '../widgets/ng_chrome.dart';
 import '../widgets/ng_retro.dart';
+import '../../main.dart' show NgMiniPlayer;
 import 'player_screen.dart';
 import 'artist_screen.dart';
 import 'login_screen.dart';
@@ -28,14 +29,31 @@ class HubScreen extends StatefulWidget {
 }
 
 class _HubScreenState extends State<HubScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late TabController _tab;
   int _idx = 0;
+
+  /// Вкладка, для которой уже применён setActiveTab (листенер TabController
+  /// тикает чаще, чем реально меняется вкладка).
+  NgTab _currentTab = NgTab.featured;
   final _searchCtrl = TextEditingController();
   final _searchFocus = FocusNode();
 
   /// Сайдбар жанров: по умолчанию закрыт.
   bool _menuOpen = false;
+
+  /// Поиск-строка уезжает вверх при прокрутке ленты вниз и возвращается,
+  /// когда листают вверх или вернулись в начало списка.
+  /// 0 — полностью видна, 1 — полностью спрятана. Жёстко привязана к скроллу:
+  /// скорость съезда равна скорости пальца, а после жеста авто-доезжает
+  /// до ближайшего конца.
+  double _searchProgress = 0;
+
+  /// Доводчик прогресса после жеста (null — не работает).
+  AnimationController? _searchAnim;
+
+  /// Высота строки поиска (плашка едет на эту величину за прогресс 0→1).
+  static const _searchBarH = 42.0;
 
   static const _tabs = [
     NgTab.featured,
@@ -76,7 +94,15 @@ class _HubScreenState extends State<HubScreen>
 
   void _onTabChanged() {
     if (_tab.indexIsChanging) return;
-    context.read<NgViewModel>().setActiveTab(_tabs[_tab.index]);
+    // Тикcer TabController'а дёргает листенер и во время драга страниц,
+    // когда индекс ещё старый — сбрасывать надо только при реальной смене.
+    final tab = _tabs[_tab.index];
+    if (tab == _currentTab) return;
+    _currentTab = tab;
+    context.read<NgViewModel>().setActiveTab(tab);
+    // Новая вкладка начинается сверху — плашка плавно выезжает обратно,
+    // даже если на предыдущей её спрятали.
+    _animateSearchTo(0, duration: const Duration(milliseconds: 280));
   }
 
   @override
@@ -84,6 +110,7 @@ class _HubScreenState extends State<HubScreen>
     _tab.animation?.removeListener(_onTabAnim);
     _tab.removeListener(_onTabChanged);
     _tab.dispose();
+    _searchAnim?.dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -101,6 +128,8 @@ class _HubScreenState extends State<HubScreen>
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<NgViewModel>();
+    final landscape = MediaQuery.of(context).size.width >
+        MediaQuery.of(context).size.height;
 
     return Scaffold(
       backgroundColor: ngBlack,
@@ -108,59 +137,92 @@ class _HubScreenState extends State<HubScreen>
         bottom: false,
         child: Column(
           children: [
-            // Шапка всегда сверху — сайдбар её не перекрывает.
+            // Шапка всегда сверху — сайдбар её не перекрывает. В ландшафте
+            // поиск встроен прямо в шапку (между лого и ником), фиксированный.
             NgLogoBar(
               username: vm.currentUser?.username,
               avatarUrl: vm.currentUser?.avatarUrl,
               onUserTap: () => _onUserTap(vm),
+              leading: landscape
+                  ? NgIconButton(
+                      icon: 'menu',
+                      padding: 10,
+                      tooltip: 'Browse genres',
+                      onTap: () => setState(() => _menuOpen = !_menuOpen),
+                    )
+                  : null,
+              middle: landscape
+                  ? Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: NgSearchBar(
+                          controller: _searchCtrl,
+                          focusNode: _searchFocus,
+                          searching: vm.isInSearch,
+                          onSubmit: _onSearch,
+                          onClear: () => _onSearch(''),
+                        ),
+                      ),
+                    )
+                  : null,
             ),
             // Ниже шапки: контент + выдвижной сайдбар.
             Expanded(
               child: Stack(
                 children: [
+                  // Портрет: поиск (прячется при скролле) → плашки вкладок
+                  // → контент. Ландшафт: поиск уже в шапке, вкладки —
+                  // стопкой слева внутри _hubContent.
                   Column(
                     children: [
-                      Row(
-                        children: [
-                          // Кнопка-гамбургер: открывает сайдбар жанров.
-                          NgIconButton(
-                            icon: 'menu',
-                            padding: 10,
-                            tooltip: 'Browse genres',
-                            onTap: () =>
-                                setState(() => _menuOpen = !_menuOpen),
-                          ),
-                          Expanded(
-                            child: NgSearchBar(
-                              controller: _searchCtrl,
-                              focusNode: _searchFocus,
-                              searching: vm.isInSearch,
-                              onSubmit: _onSearch,
-                              onClear: () => _onSearch(''),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (!vm.isInSearch)
-                        NgNavPlates(
-                          labels: _tabLabels,
-                          index: _idx,
-                          onSelect: (i) => _tab.animateTo(i),
-                        ),
-                      Expanded(
-                        child: vm.isInSearch
-                            ? _SearchResults(vm: vm)
-                            : TabBarView(
-                                controller: _tab,
+                      if (!landscape)
+                        // Плашка поиска едет 1:1 со скроллом (см.
+                        // _onScrollNotification): высота сжимается, контент
+                        // уезжает вверх, не пересоздаваясь.
+                        SizedBox(
+                          height: _searchBarH * (1 - _searchProgress),
+                          child: ClipRect(
+                            child: OverflowBox(
+                              alignment: Alignment.topLeft,
+                              maxHeight: _searchBarH,
+                              child: Row(
                                 children: [
-                                  for (var i = 0; i < _tabs.length; i++)
-                                    _TabPage(
-                                      tab: _tabs[i],
-                                      title: _podTitles[i],
-                                      icon: _podIcons[i],
+                                  // Гамбургер: открывает сайдбар жанров.
+                                  NgIconButton(
+                                    icon: 'menu',
+                                    padding: 10,
+                                    tooltip: 'Browse genres',
+                                    onTap: () =>
+                                        setState(() => _menuOpen = !_menuOpen),
+                                  ),
+                                  Expanded(
+                                    child: NgSearchBar(
+                                      controller: _searchCtrl,
+                                      focusNode: _searchFocus,
+                                      searching: vm.isInSearch,
+                                      onSubmit: _onSearch,
+                                      onClear: () => _onSearch(''),
                                     ),
+                                  ),
                                 ],
                               ),
+                            ),
+                          ),
+                        ),
+                      if (!landscape)
+                        // Плашки вкладок: Featured / New / Popular / Top Rated.
+                        AnimatedBuilder(
+                          animation: _tab.animation!,
+                          builder: (_, __) => NgNavPlates(
+                            labels: _tabLabels,
+                            index: _idx,
+                            onSelect: (i) => _tab.animateTo(i),
+                            progress:
+                                _tab.animation?.value ?? _idx.toDouble(),
+                          ),
+                        ),
+                      Expanded(
+                        child: _hubContent(vm, landscape),
                       ),
                     ],
                   ),
@@ -198,6 +260,124 @@ class _HubScreenState extends State<HubScreen>
         ),
       ),
     );
+  }
+
+  /// Общий контент хаба: результаты поиска или страницы вкладок.
+  /// В ландшафте плашки-«трапки» едут в колонку слева, список — справа.
+  /// Скролл-нотификации ловим здесь: лента вниз — поиск уезжает,
+  /// лента вверх (или в начале списка) — возвращается.
+  Widget _hubContent(NgViewModel vm, bool landscape) {
+    Widget content = vm.isInSearch
+        ? _SearchResults(vm: vm)
+        : TabBarView(
+            controller: _tab,
+            children: [
+              for (var i = 0; i < _tabs.length; i++)
+                _TabPage(
+                  tab: _tabs[i],
+                  title: _podTitles[i],
+                  icon: _podIcons[i],
+                ),
+            ],
+          );
+    if (landscape) {
+      content = Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AnimatedBuilder(
+            animation: _tab.animation!,
+            builder: (_, __) => Column(
+              children: [
+                NgNavPlatesSide(
+                  labels: _tabLabels,
+                  index: _idx,
+                  onSelect: (i) => _tab.animateTo(i),
+                  progress: _tab.animation?.value ?? _idx.toDouble(),
+                ),
+                // Ультра-компактный плеер прижат к низу левой панели.
+                const Spacer(),
+                if (vm.currentTrack != null)
+                  SizedBox(
+                    width: 170,
+                    child: NgMiniPlayer(compact: true),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(left: 8, right: 6, top: 8),
+              child: content,
+            ),
+          ),
+        ],
+      );
+    }
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScrollNotification,
+      child: content,
+    );
+  }
+
+  /// Скролл движется — плашка едет ровно на величину дельты (1:1), поэтому
+  /// скорость исчезновения равна скорости пальца. Overscroll ловим тоже:
+  /// на коротких страницах (спиннер загрузки, «Nothing here yet») тянуть
+  /// нечему, и вниз-драг доходит только как overscroll. На паузе/в конце
+  /// жеста — короткий доводчик до ближайшего конца.
+  bool _onScrollNotification(ScrollNotification n) {
+    // Горизонтальные скроллы (переключение страниц вкладок TabBarView)
+    // не должны трогать плашку: иначе свайп на соседнюю вкладку
+    // уносил её вверх, и на новой вкладке поиск был спрятан.
+    if (n.metrics.axis != Axis.vertical) return false;
+    if (n is ScrollUpdateNotification || n is OverscrollNotification) {
+      final delta = n is ScrollUpdateNotification
+          ? (n.scrollDelta ?? 0)
+          : (n as OverscrollNotification).overscroll;
+      // Живой жест всегда сильнее доводчика.
+      if (delta != 0 && _searchAnim != null) {
+        _searchAnim!.stop();
+        _searchAnim!.dispose();
+        _searchAnim = null;
+      }
+      final next = (_searchProgress + delta / _searchBarH).clamp(0.0, 1.0);
+      if (next != _searchProgress) {
+        setState(() => _searchProgress = next);
+      }
+    } else if (n is ScrollEndNotification) {
+      if (n.metrics.pixels <= 0) {
+        // Вернулись в начало списка — строка возвращается целиком.
+        _animateSearchTo(0);
+      } else if (_searchProgress > 0 && _searchProgress < 1) {
+        // Куда доезжать, решает прогресс.
+        _animateSearchTo(_searchProgress >= 0.5 ? 1 : 0);
+      }
+    }
+    return false;
+  }
+
+  /// Плавный доводчик прогресса до [target]; по умолчанию — доводка после
+  /// жеста, при смене вкладки вызывается с большей длительностью.
+  void _animateSearchTo(
+    double target, {
+    Duration duration = const Duration(milliseconds: 220),
+  }) {
+    if (_searchProgress == target) return;
+    _searchAnim?.stop();
+    _searchAnim?.dispose();
+    final ctrl = AnimationController(vsync: this, value: _searchProgress, duration: duration);
+    _searchAnim = ctrl;
+    final anim = CurvedAnimation(parent: ctrl, curve: Curves.easeOutCubic);
+    final tween = Tween(begin: _searchProgress, end: target);
+    ctrl.addListener(() {
+      if (mounted) setState(() => _searchProgress = tween.evaluate(anim));
+    });
+    ctrl.addStatusListener((s) {
+      if (s == AnimationStatus.completed) {
+        _searchAnim?.dispose();
+        _searchAnim = null;
+      }
+    });
+    ctrl.forward();
   }
 
   void _onUserTap(NgViewModel vm) {
@@ -308,9 +488,6 @@ class _GenreSidebarState extends State<_GenreSidebar> {
                         },
                       ),
                 ],
-                const SizedBox(height: 8),
-                const _SideLink(label: 'Audio Forum'),
-                const _SideLink(label: 'Voice Acting Forum'),
               ],
             ),
           ),

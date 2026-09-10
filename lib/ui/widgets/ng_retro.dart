@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/ng_theme.dart';
@@ -828,9 +830,9 @@ class NgHr extends StatelessWidget {
 
 // ── Звёзды рейтинга ───────────────────────────────────────────────────────────
 
-/// Звёзды рейтинга 2024: спрайт `star-score-2.webp` (36×72) — верхний ряд
-/// пустые, нижний залитые; заливка обрезается по ширине, как
-/// `div.star-score span { width: 99% }`.
+/// Звёзды рейтинга 2024: спрайт `star-score-2.webp` (36×72) — верхняя
+/// половина пустая звезда, нижняя залитая; пять клеток по 18px, частичная
+/// заливка — обрезкой по ширине, как `div.star-score span { width: 99% }`.
 class NgStars extends StatelessWidget {
   /// 0..5
   final double score;
@@ -840,22 +842,27 @@ class NgStars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 5 звёзд по 18px = ширина 90 (CSS 2024: 93.5px с полями).
-    final w = 90.0 * scale;
+    final w = 18.0 * scale;
     final h = 17.0 * scale;
-    final frac = (score / 5).clamp(0.0, 1.0);
     return SizedBox(
-      width: w,
       height: h,
-      child: Stack(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Пустые звёзды: верхний ряд спрайта (36×18 в масштабе).
-          _StarStrip(frac: 1, filled: false, w: w, h: h),
-          // Залитые: нижний ряд, обрезан по доле оценки.
-          if (frac > 0)
-            ClipRect(
-              clipper: _WidthClipper(frac),
-              child: _StarStrip(frac: 1, filled: true, w: w, h: h),
+          for (var i = 0; i < 5; i++)
+            SizedBox(
+              width: w,
+              height: h,
+              child: Stack(
+                children: [
+                  _StarCell(filled: false, w: w, h: h),
+                  // Заливка i-й звезды обрезается по остатку оценки.
+                  ClipRect(
+                    clipper: _WidthClipper((score - i).clamp(0.0, 1.0)),
+                    child: _StarCell(filled: true, w: w, h: h),
+                  ),
+                ],
+              ),
             ),
         ],
       ),
@@ -863,15 +870,15 @@ class NgStars extends StatelessWidget {
   }
 }
 
-/// Ряд звёзд из спрайта 36×72: тайлится по ширине.
-class _StarStrip extends StatelessWidget {
-  final double frac;
+/// Одна звезда из спрайта 36×72: верхняя половина — пустая, нижняя —
+/// залитая. Спрайт масштабируется в клетку (w × 2h, обе половины по w×h),
+/// окно ClipRect показывает только нужную половину.
+class _StarCell extends StatelessWidget {
   final bool filled;
   final double w;
   final double h;
 
-  const _StarStrip(
-      {required this.frac, required this.filled, required this.w, required this.h});
+  const _StarCell({required this.filled, required this.w, required this.h});
 
   @override
   Widget build(BuildContext context) {
@@ -882,19 +889,17 @@ class _StarStrip extends StatelessWidget {
         child: OverflowBox(
           minWidth: 0,
           minHeight: 0,
-          maxWidth: double.infinity,
-          maxHeight: h,
-          alignment: Alignment.topLeft,
-          child: SizedBox(
+          maxWidth: w,
+          maxHeight: 2 * h,
+          // Верхняя половина растянутого спрайта — пустая звезда,
+          // нижняя — залитая.
+          alignment: filled ? Alignment.bottomLeft : Alignment.topLeft,
+          child: Image.asset(
+            NgTex.starScore2024,
             width: w,
-            height: h,
-            child: Image.asset(
-              NgTex.starScore2024,
-              fit: BoxFit.none,
-              alignment: filled ? Alignment.bottomLeft : Alignment.topLeft,
-              centerSlice: Rect.fromLTWH(0, filled ? 36.0 : 0.0, 36, 36),
-              filterQuality: FilterQuality.medium,
-            ),
+            height: 2 * h,
+            fit: BoxFit.fill,
+            filterQuality: FilterQuality.medium,
           ),
         ),
       ),
@@ -1211,10 +1216,20 @@ class NgSection extends StatelessWidget {
   }
 }
 
-/// Полосатый индикатор загрузки — те же полоски, только бегут.
+/// Минималистичный индикатор загрузки: точки вращаются вокруг общего
+/// центра (орбита), каждая чуть отстаёт по фазе — классический спиннер.
 class NgLoading extends StatefulWidget {
   final double width;
-  const NgLoading({super.key, this.width = 120});
+
+  /// Диаметр орбиты. По умолчанию подбирается от ширины — старые вызовы
+  /// с width 100/120/140 дают привычный масштаб.
+  final double? size;
+
+  /// Компактный режим для строк/шапок: без вертикального паддинга.
+  final bool compact;
+
+  const NgLoading(
+      {super.key, this.width = 120, this.size, this.compact = false});
 
   @override
   State<NgLoading> createState() => _NgLoadingState();
@@ -1224,7 +1239,7 @@ class _NgLoadingState extends State<NgLoading>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 700),
+    duration: const Duration(milliseconds: 1100),
   )..repeat();
 
   @override
@@ -1235,21 +1250,64 @@ class _NgLoadingState extends State<NgLoading>
 
   @override
   Widget build(BuildContext context) {
+    final d = widget.size ?? (widget.width / 4).clamp(18.0, 34.0);
+    const dots = 5; // 5 точек по кругу
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 28),
+      padding: EdgeInsets.symmetric(
+          vertical: widget.compact ? 0 : 28, horizontal: widget.compact ? 8 : 0),
       child: Center(
         child: SizedBox(
-          width: widget.width,
+          width: d,
+          height: d,
           child: AnimatedBuilder(
             animation: _c,
-            builder: (_, __) => NgStripedBar(
-              value: 1,
-              height: 10,
-              phase: -_c.value * 16,
+            builder: (_, __) => CustomPaint(
+              painter: _OrbitDotsPainter(
+                progress: _c.value,
+                dots: dots,
+                orbit: d / 2 - d / 10,
+                dotRadius: d / 10,
+              ),
+              size: Size.square(d),
             ),
           ),
         ),
       ),
     );
   }
+}
+
+class _OrbitDotsPainter extends CustomPainter {
+  final double progress; // 0..1 за цикл
+  final int dots;
+  final double orbit; // радиус орбиты
+  final double dotRadius;
+
+  const _OrbitDotsPainter({
+    required this.progress,
+    required this.dots,
+    required this.orbit,
+    required this.dotRadius,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    for (var i = 0; i < dots; i++) {
+      final angle = 2 * math.pi * (progress + i / dots);
+      final p = Offset(
+        center.dx + orbit * math.cos(angle),
+        center.dy + orbit * math.sin(angle),
+      );
+      // Точка ярче, когда она «спереди» (верх полукруга) — глубина вращения.
+      final depth = 0.5 - 0.5 * math.sin(angle);
+      final paint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.25 + 0.75 * depth);
+      canvas.drawCircle(p, dotRadius, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_OrbitDotsPainter old) =>
+      old.progress != progress || old.orbit != orbit;
 }

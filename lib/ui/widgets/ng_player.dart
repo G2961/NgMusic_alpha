@@ -733,6 +733,10 @@ class NgPlayerStage extends StatelessWidget {
   final VoidCallback? onRepeat;
   final ValueChanged<Duration>? onSeek;
 
+  /// Явная высота обложки (ландшафт: остаток высоты сцены); null — квадрат
+  /// по ширине сцены, как в портрете.
+  final double? artHeight;
+
   const NgPlayerStage({
     super.key,
     this.artUrls = const [],
@@ -748,6 +752,7 @@ class NgPlayerStage extends StatelessWidget {
     this.onShuffle,
     this.onRepeat,
     this.onSeek,
+    this.artHeight,
   });
 
   @override
@@ -757,12 +762,18 @@ class NgPlayerStage extends StatelessWidget {
 
     return NgPlayerFrame(
       children: [
-        // Обложка во всю ширину блока, без свечений и рамок — рамку даёт сам `.ngp`
+        // Обложка во всю ширину блока, без свечений и рамок — рамку даёт сам `.ngp`.
+        // artHeight задаёт точную высоту: сцена не должна ни раздуваться, ни резаться.
         if (artUrls.isNotEmpty)
-          AspectRatio(
-            aspectRatio: 1,
-            child: NgArtImage(urls: artUrls),
-          ),
+          artHeight != null
+              ? SizedBox(
+                  height: artHeight,
+                  child: NgArtImage(urls: artUrls),
+                )
+              : AspectRatio(
+                  aspectRatio: 1,
+                  child: NgArtImage(urls: artUrls),
+                ),
 
         // `.ngp-bar` — время и полосатый сикбар
         NgPlayerBar(

@@ -174,10 +174,9 @@ void main() {
   });
 
   testWidgets('выделенная плашка навбара подкрашена акцентом', (tester) async {
-    // 2024: у выделенной плашки градиентная подсветка снизу (accent с
-    // alpha 0.32) плюс border-bottom 2px цвета акцента. У неактивной —
-    // просто белая нижняя граница. Проверяем, что у выделенной нижний
-    // border — цветной акцент, а у неактивной — белый.
+    // 2024: у выделенной плашки линия в полную яркость акцента + градиентная
+    // подсветка снизу; у неактивной — та же линия, но приглушённая (alpha
+    // 0.45, т.к. без progress у соседей activation = 0).
     Widget build(int index) => _wrap(NgNavPlates(
           labels: const ['Featured', 'New'],
           index: index,
@@ -194,19 +193,21 @@ void main() {
       );
       if (plates.isEmpty) return null;
       final plate = plates.first;
-      // Достаём AnimatedContainer.decoration через дерево.
+      // Достаём Container.decoration через дерево.
       final containerFinder = find.descendant(
         of: find.byWidget(plate),
-        matching: find.byType(AnimatedContainer),
+        matching: find.byType(Container),
       );
       if (containerFinder.evaluate().isEmpty) return null;
-      final container = t.widget<AnimatedContainer>(containerFinder.first);
-      final dec = container.decoration;
-      if (dec is! BoxDecoration) return null;
-      final b = dec.border;
-      if (b is Border) {
-        final side = b.bottom;
-        return side.color == Colors.transparent ? null : side.color;
+      for (final c in containerFinder.evaluate()) {
+        final widget = c.widget;
+        if (widget is Container && widget.decoration is BoxDecoration) {
+          final b = (widget.decoration as BoxDecoration).border;
+          if (b is Border) {
+            final side = b.bottom;
+            return side.color == Colors.transparent ? null : side.color;
+          }
+        }
       }
       return null;
     }
@@ -217,10 +218,11 @@ void main() {
 
     expect(selected, isNotNull);
     expect(idle, isNotNull);
-    // Выделенная — синяя.
+    // Выделенная — синяя полной яркости.
     expect(selected!.b, greaterThan(selected.r));
-    // Невыделенная — белая (R≈G≈B≈255).
-    expect(idle!.r, greaterThan(0.9));
-    expect(idle.b, greaterThan(0.9));
+    // Невыделенная — тоже цветная (красный акцент), но приглушённая:
+    // alpha 0.45 → смешение с чёрным фоном, R всё равно доминирует.
+    expect(idle!.r, greaterThan(idle.b));
+    expect(idle.a, closeTo(0.45, 0.01));
   });
 }

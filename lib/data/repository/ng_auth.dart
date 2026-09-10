@@ -81,17 +81,18 @@ class NgAuth {
   static const _votePrefix = 'ng_my_vote_'; // + trackId → '0'..'10' (звёзды*2)
   static const _reviewPrefix = 'ng_my_review_'; // + trackId → JSON карточки
 
-  /// Сохранённый голос: 0..5 звёзд (null — не голосовал).
+  /// Сохранённый голос в шкале NG: 0..10 полузвёзд (null — не голосовал).
   static Future<int?> getMyVote(String trackId) async {
     final p = await SharedPreferences.getInstance();
     final raw = p.getString('$_votePrefix$trackId');
     if (raw == null) return null;
-    return (int.tryParse(raw) ?? 0) ~/ 2;
+    return (int.tryParse(raw) ?? 0).clamp(0, 10);
   }
 
-  static Future<void> saveMyVote(String trackId, int stars) async {
+  /// [vote] — голос в шкале NG 0..10 (полузвёзды).
+  static Future<void> saveMyVote(String trackId, int vote) async {
     final p = await SharedPreferences.getInstance();
-    await p.setString('$_votePrefix$trackId', '${(stars * 2).clamp(0, 10)}');
+    await p.setString('$_votePrefix$trackId', '${vote.clamp(0, 10)}');
   }
 
   static Future<void> clearMyVote(String trackId) async {
